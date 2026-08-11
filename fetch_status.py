@@ -142,8 +142,11 @@ def main():
     if code != 200:
         raise RuntimeError(f"Write status sheet: HTTP {code} {d.get('error', d)}")
 
+    # Watchdog output: stay silent when all GREEN, emit only non-GREEN lines
+    # so the cron delivery only fires on a problem.
     for r in rows:
-        print("\t".join(r))
+        if r[1] != "GREEN" or r[2].startswith("ERR"):
+            print("\t".join(r))
 
 
 if __name__ == "__main__":

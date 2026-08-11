@@ -98,6 +98,9 @@ function render(rows) {
 }
 
 load();
+// Looker Studio caches the iframe; re-poll the sheet periodically so the
+// widget stays fresh without needing a report reload.
+setInterval(load, 5 * 60 * 1000);
 </script>
 </body>
 </html>

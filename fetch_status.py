@@ -36,6 +36,9 @@ IG_SHEET = "1iKW-esn69suzL1Da87OqADBT7NLPVU1Rl7gE5n9dMdc"
 
 GREEN_DAYS = 2
 YELLOW_DAYS = 7
+# GSC data lags ~1-2 days behind GA4 (Google-side), so use a relaxed
+# GREEN threshold to avoid a permanent YELLOW from normal freshness.
+GSC_GREEN_DAYS = 3
 
 
 def creds(scopes):
@@ -100,9 +103,9 @@ def sheet_last_date(sheet_id, tok):
     return date.fromisoformat(max(dates))
 
 
-def status_for(d, today):
+def status_for(d, today, green_days=GREEN_DAYS):
     days = (today - d).days
-    if days <= GREEN_DAYS:
+    if days <= green_days:
         return "GREEN"
     if days <= YELLOW_DAYS:
         return "YELLOW"
@@ -125,7 +128,7 @@ def main():
     # GSC
     try:
         d = gsc_last_date(tok)
-        rows.append(["GSC", status_for(d, today), d.isoformat()])
+        rows.append(["GSC", status_for(d, today, GSC_GREEN_DAYS), d.isoformat()])
     except Exception as e:
         rows.append(["GSC", "RED", f"ERR {e}"])
     # FB / IG

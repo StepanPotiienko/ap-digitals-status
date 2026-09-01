@@ -36,6 +36,8 @@ IG_SHEET = "1iKW-esn69suzL1Da87OqADBT7NLPVU1Rl7gE5n9dMdc"
 # Public sheets (readable via gviz without auth). Column A holds the date.
 LINKEDIN_SHEET = "1nbzGBt53MuiVFNxNVPPP_rwP4AYC_tFfiZyWW2fHovg"
 CRM_SHEET = "1KpiWUxu2k3SEwfseflAK_sQI5sLh3JxHj2KLLrmzbS8"
+# Shared to the service account (auth via Sheets API, like FB/IG). Column A = date.
+YOUTUBE_SHEET = "1LYiIPDv4rTPRU-MJlLkMW8ELPUq-w000lBq36S52C7M"
 
 GREEN_DAYS = 2
 YELLOW_DAYS = 7
@@ -100,7 +102,7 @@ def sheet_last_date(sheet_id, tok):
     code, d = api(url, tok)
     if code != 200 or "values" not in d:
         raise RuntimeError(f"Sheets {sheet_id}: HTTP {code} {d.get('error', d)}")
-    dates = [r[0] for r in d["values"] if r and r[0] not in ("Date", "")]
+    dates = [r[0] for r in d["values"] if r and r[0].strip().lower() not in ("date", "")]
     if not dates:
         raise RuntimeError(f"Sheets {sheet_id}: no dates")
     return date.fromisoformat(max(dates))
@@ -168,9 +170,17 @@ def main():
             rows.append([name, status_for(d, today), d.isoformat()])
         except Exception as e:
             rows.append([name, "RED", f"ERR {e}"])
-    # Integrations without a data source wired up yet: show a neutral row so
-    # the widget lists them, with "немає даних" instead of a fake date.
-    for name in ("Google Ads", "Meta Ads", "Clarity", "YouTube", "SendPulse"):
+    # YouTube (service-account sheet, column A = date)
+    try:
+        d = sheet_last_date(YOUTUBE_SHEET, tok)
+        rows.append(["YouTube", status_for(d, today), d.isoformat()])
+    except Exception as e:
+        rows.append(["YouTube", "RED", f"ERR {e}"])
+    # SendPulse: no data yet — neutral grey row. When the collector first
+    # writes data, wire freshness from the LastUpdate tab and this flips on.
+    rows.append(["SendPulse", "—", "немає даних"])
+    # Google Ads / Meta Ads / Clarity: no data source wired up yet — grey.
+    for name in ("Google Ads", "Meta Ads", "Clarity"):
         rows.append([name, "—", "немає даних"])
 
     # write to status sheet

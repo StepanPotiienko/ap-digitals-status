@@ -43,9 +43,9 @@
   <h1>Статус інтеграцій</h1>
   <table id="tbl">
     <thead>
-      <tr><th>Інтеграція</th><th>Статус</th><th>Останнє оновлення даних</th></tr>
+      <tr><th>Інтеграція</th><th>Останнє оновлення даних</th></tr>
     </thead>
-    <tbody id="rows"><tr><td colspan="3" style="color:#5f6368">Завантаження…</td></tr></tbody>
+    <tbody id="rows"><tr><td colspan="2" style="color:#5f6368">Завантаження…</td></tr></tbody>
   </table>
   <div class="updated" id="updated"></div>
 </div>
@@ -78,9 +78,10 @@ function render(rows) {
   const el = document.getElementById("rows");
   el.innerHTML = "";
   if (!rows.length) {
-    el.innerHTML = '<tr><td colspan="3" style="color:#5f6368">Немає даних</td></tr>';
+    el.innerHTML = '<tr><td colspan="2" style="color:#5f6368">Немає даних</td></tr>';
     return;
   }
+  // Keep the integrations in source (=status sheet) order.
   rows.forEach(r => {
     const st = (r.status || "").toLowerCase();
     const color = ["green", "yellow", "red"].includes(st) ? st : "none";
@@ -89,7 +90,6 @@ function render(rows) {
     const tr = document.createElement("tr");
     tr.innerHTML =
       `<td><span class="item"><span class="dot ${color}"></span><span class="name">${r.platform}</span></span></td>` +
-      `<td>${r.status || "—"}</td>` +
       `<td class="date">${dateText}</td>`;
     el.appendChild(tr);
   });

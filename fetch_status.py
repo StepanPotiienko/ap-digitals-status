@@ -33,6 +33,9 @@ STATUS_SHEET_RANGE = "status!A2:C"  # sheet named 'status'?
 
 FB_SHEET = "1N7qiagiwwIP3UKnHD_oA2kNPwxHfTwOphaygJn5KLQs"
 IG_SHEET = "1iKW-esn69suzL1Da87OqADBT7NLPVU1Rl7gE5n9dMdc"
+# Public sheets (readable via gviz without auth). Column A holds the date.
+LINKEDIN_SHEET = "1nbzGBt53MuiVFNxNVPPP_rwP4AYC_tFfiZyWW2fHovg"
+CRM_SHEET = "1KpiWUxu2k3SEwfseflAK_sQI5sLh3JxHj2KLLrmzbS8"
 
 GREEN_DAYS = 2
 YELLOW_DAYS = 7
@@ -103,6 +106,26 @@ def sheet_last_date(sheet_id, tok):
     return date.fromisoformat(max(dates))
 
 
+def public_sheet_last_date(sheet_id):
+    """Read a public sheet's column A via gviz (no auth). Column A = date."""
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, context=_SSL_CTX, timeout=20) as r:
+        text = r.read().decode("utf-8", "ignore")
+    dates = []
+    for line in text.splitlines()[1:]:  # skip header
+        if not line.strip():
+            continue
+        d = line.split(",")[0].strip().strip('"')[:10]
+        try:
+            dates.append(date.fromisoformat(d))
+        except ValueError:
+            pass
+    if not dates:
+        raise RuntimeError(f"Public sheet {sheet_id}: no dates")
+    return max(dates)
+
+
 def status_for(d, today, green_days=GREEN_DAYS):
     days = (today - d).days
     if days <= green_days:
@@ -138,6 +161,17 @@ def main():
             rows.append([name, status_for(d, today), d.isoformat()])
         except Exception as e:
             rows.append([name, "RED", f"ERR {e}"])
+    # LinkedIn / CRM (public sheets, column A = date)
+    for name, sid in (("LinkedIn", LINKEDIN_SHEET), ("CRM", CRM_SHEET)):
+        try:
+            d = public_sheet_last_date(sid)
+            rows.append([name, status_for(d, today), d.isoformat()])
+        except Exception as e:
+            rows.append([name, "RED", f"ERR {e}"])
+    # Integrations without a data source wired up yet: show a neutral row so
+    # the widget lists them, with "немає даних" instead of a fake date.
+    for name in ("Google Ads", "Meta Ads", "Clarity", "YouTube", "SendPulse"):
+        rows.append([name, "—", "немає даних"])
 
     # write to status sheet
     url = f"https://sheets.googleapis.com/v4/spreadsheets/{STATUS_SHEET_ID}/values/status!A2:C?valueInputOption=RAW"

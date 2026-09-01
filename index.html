@@ -10,46 +10,43 @@
   body {
     margin: 0; padding: 0;
     font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-    background: #EFEFEF; color: #202124;
+    background: transparent; color: #202124;
     min-height: 100vh;
     display: flex; align-items: center; justify-content: center;
   }
-  .card {
-    background: transparent; padding: 0; margin: 0;
-  }
+  .card { background: transparent; padding: 0; margin: 0; }
   h1 {
     font-size: 13px; margin: 0 0 8px; font-weight: 600; color: #5f6368;
     text-align: center; text-transform: uppercase; letter-spacing: .4px;
   }
-  .list {
-    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
-    justify-content: center; padding: 0;
+  table { border-collapse: collapse; font-size: 12px; }
+  th {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .4px;
+    color: #5f6368; font-weight: 600; text-align: left;
+    padding: 2px 10px 4px 0; border-bottom: 1px solid #dadce0;
   }
-  .item {
-    display: flex; align-items: center; gap: 6px;
-  }
-  .dot {
-    width: 12px; height: 12px; border-radius: 50%;
-    flex: 0 0 auto; position: relative;
-  }
-  .dot:hover::after {
-    content: attr(data-title);
-    position: absolute; left: 18px; top: -5px;
-    background: #3c4043; color: #fff; padding: 3px 7px;
-    border-radius: 5px; font-size: 11px; white-space: nowrap;
-    z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,.3);
-  }
-  .name { font-weight: 500; font-size: 12px; }
+  td { padding: 3px 10px 3px 0; border-bottom: 1px solid #f1f3f4; }
+  tr:last-child td { border-bottom: none; }
+  .item { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
   .green  { background: #34a853; }
   .yellow { background: #fbbc04; }
   .red    { background: #ea4335; }
+  .none   { background: #dadce0; }
+  .name { font-weight: 500; }
+  .date { color: #5f6368; white-space: nowrap; }
   .updated { font-size: 10px; color: #9aa0a6; margin-top: 6px; text-align: center; }
 </style>
 </head>
 <body>
 <div class="card">
   <h1>Статус інтеграцій</h1>
-  <div class="list" id="rows"><div style="color:#5f6368;font-size:13px">Завантаження…</div></div>
+  <table id="tbl">
+    <thead>
+      <tr><th>Інтеграція</th><th>Статус</th><th>Останнє оновлення даних</th></tr>
+    </thead>
+    <tbody id="rows"><tr><td colspan="3" style="color:#5f6368">Завантаження…</td></tr></tbody>
+  </table>
   <div class="updated" id="updated"></div>
 </div>
 <script>
@@ -61,16 +58,14 @@ async function load() {
     const res = await fetch(CSV_URL, { cache: "no-store" });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const text = await res.text();
-    const rows = parseCSV(text);
-    render(rows);
+    render(parseCSV(text));
   } catch (e) {
     document.getElementById("rows").innerHTML =
-      '<div style="color:#c5221f;font-size:13px">Не вдалося завантажити статус: ' + e.message + '</div>';
+      '<tr><td colspan="3" style="color:#c5221f">Не вдалося завантажити статус: ' + e.message + '</td></tr>';
   }
 }
 
 function parseCSV(text) {
-  // gviz out:csv returns quoted fields, comma-separated, no headers issue
   const lines = text.split(/\r?\n/).filter(l => l.trim() !== "");
   lines.shift(); // header
   return lines.map(l => {
@@ -83,18 +78,20 @@ function render(rows) {
   const el = document.getElementById("rows");
   el.innerHTML = "";
   if (!rows.length) {
-    el.innerHTML = '<div style="color:#5f6368;font-size:13px">Немає даних</div>';
+    el.innerHTML = '<tr><td colspan="3" style="color:#5f6368">Немає даних</td></tr>';
     return;
   }
   rows.forEach(r => {
-    const color = (r.status || "").toLowerCase();
-    const dateText = r.date.startsWith("ERR") ? r.date : ("Дані: " + r.date);
-    const item = document.createElement("div");
-    item.className = "item";
-    item.innerHTML =
-      `<span class="dot ${color}" data-title="${r.platform}: ${dateText}"></span>` +
-      `<span class="name">${r.platform}</span>`;
-    el.appendChild(item);
+    const st = (r.status || "").toLowerCase();
+    const color = ["green", "yellow", "red"].includes(st) ? st : "none";
+    const hasErr = r.date.startsWith("ERR");
+    const dateText = hasErr ? "немає даних" : (r.date || "—");
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td><span class="item"><span class="dot ${color}"></span><span class="name">${r.platform}</span></span></td>` +
+      `<td>${r.status || "—"}</td>` +
+      `<td class="date">${dateText}</td>`;
+    el.appendChild(tr);
   });
   const last = rows.map(r => r.date).filter(d => !d.startsWith("ERR")).sort().pop();
   if (last) document.getElementById("updated").textContent = "Оновлено: " + new Date().toLocaleString("uk-UA");

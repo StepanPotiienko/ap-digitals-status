@@ -38,6 +38,8 @@ LINKEDIN_SHEET = "1nbzGBt53MuiVFNxNVPPP_rwP4AYC_tFfiZyWW2fHovg"
 CRM_SHEET = "1KpiWUxu2k3SEwfseflAK_sQI5sLh3JxHj2KLLrmzbS8"
 # Shared to the service account (auth via Sheets API, like FB/IG). Column A = date.
 YOUTUBE_SHEET = "1LYiIPDv4rTPRU-MJlLkMW8ELPUq-w000lBq36S52C7M"
+# SendPulse collector writes into this sheet (Campaigns + LastUpdate tabs).
+SENDPULSE_SHEET = "1D0ea1XT3FlCD4iK9gbiRzCuqtIobdGx06U0N6BlmPes"
 
 GREEN_DAYS = 2
 YELLOW_DAYS = 7
@@ -128,6 +130,42 @@ def public_sheet_last_date(sheet_id):
     return max(dates)
 
 
+def sendpulse_last_date(tok):
+    """Freshness = last successful collector run, but only once real data exists.
+
+    SendPulse has no data until the collector writes an actual campaign row.
+    While Campaigns!A2:A holds only the header, there's nothing to show yet, so
+    we raise (caller renders a grey 'немає даних' row). Once a campaign appears,
+    freshness = the most recent non-ERR Campaigns log timestamp in LastUpdate.
+    """
+    # any real campaign rows beyond the header?
+    code, d = api(
+        f"https://sheets.googleapis.com/v4/spreadsheets/{SENDPULSE_SHEET}/values/Campaigns!A2:A",
+        tok,
+    )
+    if code != 200 or not d.get("values"):
+        raise RuntimeError(f"SendPulse: no data yet (HTTP {code})")
+    # last successful Campaigns run from the collector log
+    code, d = api(
+        f"https://sheets.googleapis.com/v4/spreadsheets/{SENDPULSE_SHEET}/values/LastUpdate!A1:D200",
+        tok,
+    )
+    if code != 200:
+        raise RuntimeError(f"SendPulse LastUpdate: HTTP {code}")
+    latest = None
+    for r in reversed(d.get("values", [])):
+        if len(r) >= 3 and r[1] == "Campaigns" and r[2] == "OK":
+            ts = r[0][:10]  # YYYY-MM-DD
+            try:
+                latest = date.fromisoformat(ts)
+                break
+            except ValueError:
+                continue
+    if latest is None:
+        raise RuntimeError("SendPulse: no successful run logged")
+    return latest
+
+
 def status_for(d, today, green_days=GREEN_DAYS):
     days = (today - d).days
     if days <= green_days:
@@ -176,9 +214,13 @@ def main():
         rows.append(["YouTube", status_for(d, today), d.isoformat()])
     except Exception as e:
         rows.append(["YouTube", "RED", f"ERR {e}"])
-    # SendPulse: no data yet — neutral grey row. When the collector first
-    # writes data, wire freshness from the LastUpdate tab and this flips on.
-    rows.append(["SendPulse", "—", "немає даних"])
+    # SendPulse: freshness = last collector run, but only once real data exists.
+    # Until a campaign appears this stays grey ('немає даних').
+    try:
+        d = sendpulse_last_date(tok)
+        rows.append(["SendPulse", status_for(d, today), d.isoformat()])
+    except Exception as e:
+        rows.append(["SendPulse", "—", "немає даних"])
     # Google Ads / Meta Ads: no data source wired up yet — grey.
     for name in ("Google Ads", "Meta Ads"):
         rows.append([name, "—", "немає даних"])

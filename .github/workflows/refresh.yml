@@ -32,4 +32,6 @@ jobs:
           GADS_REFRESH_TOKEN: ${{ secrets.GADS_REFRESH_TOKEN }}
           GADS_MANAGER_ID: ${{ secrets.GADS_MANAGER_ID }}
           GADS_CUSTOMER_ID: ${{ secrets.GADS_CUSTOMER_ID }}
+          WINDSOR_API_KEY: ${{ secrets.WINDSOR_API_KEY }}
+          WINDSOR_FB_ACCOUNT: ${{ secrets.WINDSOR_FB_ACCOUNT }}
         run: python fetch_status.py

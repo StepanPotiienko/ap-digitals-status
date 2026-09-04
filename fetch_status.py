@@ -49,6 +49,9 @@ GADS = {
     "manager_id": os.environ.get("GADS_MANAGER_ID", ""),
     "customer_id": os.environ.get("GADS_CUSTOMER_ID", ""),
 }
+# Windsor.ai (Meta Ads via 'facebook' connector). Empty when unset.
+WINDSOR_API_KEY = os.environ.get("WINDSOR_API_KEY", "")
+WINDSOR_FB_ACCOUNT = os.environ.get("WINDSOR_FB_ACCOUNT", "facebook__1900818654526204")
 
 GREEN_DAYS = 2
 YELLOW_DAYS = 7
@@ -145,6 +148,43 @@ def gads_last_date():
     if not rows:
         raise RuntimeError("Google Ads: no rows with data in last 400 days")
     return date.fromisoformat(rows[0].segments.date)
+
+
+def meta_last_date():
+    """Last date Meta Ads has data via Windsor.ai 'facebook' connector.
+
+    Queries a wide date window, grabs the newest distinct date present. Raises
+    when Windsor has no data yet (caller renders a grey row).
+    """
+    if not WINDSOR_API_KEY:
+        raise RuntimeError("WINDSOR_API_KEY not set")
+    today = date.today()
+    fromd = (today - timedelta(days=400)).isoformat()
+    params = {
+        "api_key": WINDSOR_API_KEY,
+        "fields": "date,spend",
+        "date_from": fromd,
+        "date_to": today.isoformat(),
+        "_max_rows": "1000",
+    }
+    url = "https://connectors.windsor.ai/facebook?" + "&".join(f"{k}={v}" for k, v in params.items())
+    req = urllib.request.Request(url, headers={"User-Agent": "Windsor/1.0"})
+    try:
+        with urllib.request.urlopen(req, context=_SSL_CTX, timeout=30) as r:
+            payload = json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Windsor facebook: HTTP {e.code} {e.read().decode()[:200]}")
+    rows = payload.get("data") or []
+    dates = set()
+    for row in rows:
+        ds = str(row.get("date", ""))[:10]
+        try:
+            dates.add(date.fromisoformat(ds))
+        except ValueError:
+            continue
+    if not dates:
+        raise RuntimeError("Windsor: no Meta data in last 400 days")
+    return max(dates)
 
 
 def sheet_last_date(sheet_id, tok):
@@ -255,13 +295,17 @@ def main():
         rows.append(["SendPulse", status_for(d, today), d.isoformat()])
     except Exception as e:
         rows.append(["SendPulse", "—", "немає даних"])
-    # Google Ads (via API when secrets set, else grey); Meta Ads — grey.
+    # Google Ads (via API when secrets set, else grey); Meta Ads via Windsor.
     try:
         d = gads_last_date()
         rows.append(["Google Ads", status_for(d, today), d.isoformat()])
     except Exception as e:
         rows.append(["Google Ads", "—", "немає даних"])
-    rows.append(["Meta Ads", "—", "немає даних"])
+    try:
+        d = meta_last_date()
+        rows.append(["Meta Ads", status_for(d, today), d.isoformat()])
+    except Exception as e:
+        rows.append(["Meta Ads", "—", "немає даних"])
 
     # write to status sheet
     url = f"https://sheets.googleapis.com/v4/spreadsheets/{STATUS_SHEET_ID}/values/status!A2:C?valueInputOption=RAW"

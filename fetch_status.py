@@ -179,21 +179,7 @@ def public_sheet_last_date(sheet_id):
 
 
 def sendpulse_last_date(tok):
-    """Freshness = last successful collector run, but only once real data exists.
-
-    SendPulse has no data until the collector writes an actual campaign row.
-    While Campaigns!A2:A holds only the header, there's nothing to show yet, so
-    we raise (caller renders a grey 'немає даних' row). Once a campaign appears,
-    freshness = the most recent non-ERR Campaigns log timestamp in LastUpdate.
-    """
-    # any real campaign rows beyond the header?
-    code, d = api(
-        f"https://sheets.googleapis.com/v4/spreadsheets/{SENDPULSE_SHEET}/values/Campaigns!A2:A",
-        tok,
-    )
-    if code != 200 or not d.get("values"):
-        raise RuntimeError(f"SendPulse: no data yet (HTTP {code})")
-    # last successful Campaigns run from the collector log
+    """Freshness = last successful SendPulse collector run, per LastUpdate log."""
     code, d = api(
         f"https://sheets.googleapis.com/v4/spreadsheets/{SENDPULSE_SHEET}/values/LastUpdate!A1:D200",
         tok,

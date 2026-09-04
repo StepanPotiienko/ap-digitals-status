@@ -179,8 +179,8 @@ def main():
     # SendPulse: no data yet — neutral grey row. When the collector first
     # writes data, wire freshness from the LastUpdate tab and this flips on.
     rows.append(["SendPulse", "—", "немає даних"])
-    # Google Ads / Meta Ads / Clarity: no data source wired up yet — grey.
-    for name in ("Google Ads", "Meta Ads", "Clarity"):
+    # Google Ads / Meta Ads: no data source wired up yet — grey.
+    for name in ("Google Ads", "Meta Ads"):
         rows.append([name, "—", "немає даних"])
 
     # write to status sheet

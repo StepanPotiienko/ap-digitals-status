@@ -40,6 +40,15 @@ CRM_SHEET = "1KpiWUxu2k3SEwfseflAK_sQI5sLh3JxHj2KLLrmzbS8"
 YOUTUBE_SHEET = "1LYiIPDv4rTPRU-MJlLkMW8ELPUq-w000lBq36S52C7M"
 # SendPulse collector writes into this sheet (Campaigns + LastUpdate tabs).
 SENDPULSE_SHEET = "1D0ea1XT3FlCD4iK9gbiRzCuqtIobdGx06U0N6BlmPes"
+# Google Ads (lazy; needs google-ads lib + secrets from env). Empty when unset.
+GADS = {
+    "dev_token": os.environ.get("GADS_DEV_TOKEN", ""),
+    "client_id": os.environ.get("GADS_CLIENT_ID", ""),
+    "client_secret": os.environ.get("GADS_CLIENT_SECRET", ""),
+    "refresh_token": os.environ.get("GADS_REFRESH_TOKEN", ""),
+    "manager_id": os.environ.get("GADS_MANAGER_ID", ""),
+    "customer_id": os.environ.get("GADS_CUSTOMER_ID", ""),
+}
 
 GREEN_DAYS = 2
 YELLOW_DAYS = 7
@@ -97,6 +106,45 @@ def gsc_last_date(tok):
     if not dates:
         raise RuntimeError("GSC: no rows")
     return date.fromisoformat(max(dates))
+
+
+def gads_last_date():
+    """Last date Google Ads has data for this customer, via Google Ads API.
+
+    Needs the google-ads library and all GADS_* env secrets. Queries the
+    most recent day with impressions within the last 400 days; a day counts
+    only if it has data (metrics.impressions > 0).
+    """
+    if not all(GADS[k] for k in ("dev_token", "client_id", "client_secret",
+                                 "refresh_token", "manager_id", "customer_id")):
+        raise RuntimeError("GADS_* env not fully set")
+    try:
+        from google.ads.googleads.client import GoogleAdsClient
+    except ImportError as e:
+        raise RuntimeError(f"google-ads lib missing: {e}")
+    conf = {
+        "developer_token": GADS["dev_token"],
+        "client_id": GADS["client_id"],
+        "client_secret": GADS["client_secret"],
+        "refresh_token": GADS["refresh_token"],
+        "login_customer_id": GADS["manager_id"],  # MCC manager
+        "use_proto_plus": True,
+    }
+    client = GoogleAdsClient.load_from_dict(conf)
+    svc = client.get_service("GoogleAdsService")
+    cid = GADS["customer_id"]
+    start = (date.today() - timedelta(days=400)).isoformat()
+    end = date.today().isoformat()
+    query = (
+        f"SELECT segments.date FROM customer "
+        f"WHERE segments.date BETWEEN '{start}' AND '{end}' "
+        f"AND metrics.impressions > 0 "
+        f"ORDER BY segments.date DESC LIMIT 1"
+    )
+    rows = list(svc.search(customer_id=cid, query=query))
+    if not rows:
+        raise RuntimeError("Google Ads: no rows with data in last 400 days")
+    return date.fromisoformat(rows[0].segments.date)
 
 
 def sheet_last_date(sheet_id, tok):
@@ -221,9 +269,13 @@ def main():
         rows.append(["SendPulse", status_for(d, today), d.isoformat()])
     except Exception as e:
         rows.append(["SendPulse", "—", "немає даних"])
-    # Google Ads / Meta Ads: no data source wired up yet — grey.
-    for name in ("Google Ads", "Meta Ads"):
-        rows.append([name, "—", "немає даних"])
+    # Google Ads (via API when secrets set, else grey); Meta Ads — grey.
+    try:
+        d = gads_last_date()
+        rows.append(["Google Ads", status_for(d, today), d.isoformat()])
+    except Exception as e:
+        rows.append(["Google Ads", "—", "немає даних"])
+    rows.append(["Meta Ads", "—", "немає даних"])
 
     # write to status sheet
     url = f"https://sheets.googleapis.com/v4/spreadsheets/{STATUS_SHEET_ID}/values/status!A2:C?valueInputOption=RAW"

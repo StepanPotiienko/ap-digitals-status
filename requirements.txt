@@ -1,0 +1,3 @@
+certifi
+google-auth
+google-ads>=31

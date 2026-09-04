@@ -66,15 +66,37 @@ def creds(scopes):
     return c.token
 
 
+def _retry(fn, attempts=3, base_delay=1.0):
+    """Retry a callable on transient HTTP 5xx/429/network errors."""
+    import time
+    last = None
+    for i in range(attempts):
+        try:
+            return fn()
+        except urllib.error.HTTPError as e:
+            last = e
+            if e.code not in (429, 500, 502, 503, 504):
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+            last = e
+        if i < attempts - 1:
+            time.sleep(base_delay * (2 ** i))
+    raise last
+
+
 def api(url, token, body=None, method=None):
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, context=_SSL_CTX) as r:
-            return r.status, json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read().decode() or "{}")
+
+    def _call():
+        try:
+            with urllib.request.urlopen(req, context=_SSL_CTX) as r:
+                return r.status, json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read().decode() or "{}")
+
+    return _retry(_call)
 
 
 def ga4_last_date(tok):
@@ -169,9 +191,13 @@ def meta_last_date():
     }
     url = "https://connectors.windsor.ai/facebook?" + "&".join(f"{k}={v}" for k, v in params.items())
     req = urllib.request.Request(url, headers={"User-Agent": "Windsor/1.0"})
-    try:
+
+    def _call():
         with urllib.request.urlopen(req, context=_SSL_CTX, timeout=30) as r:
-            payload = json.loads(r.read().decode())
+            return json.loads(r.read().decode())
+
+    try:
+        payload = _retry(_call)
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"Windsor facebook: HTTP {e.code} {e.read().decode()[:200]}")
     rows = payload.get("data") or []
@@ -202,8 +228,12 @@ def public_sheet_last_date(sheet_id):
     """Read a public sheet's column A via gviz (no auth). Column A = date."""
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, context=_SSL_CTX, timeout=20) as r:
-        text = r.read().decode("utf-8", "ignore")
+
+    def _call():
+        with urllib.request.urlopen(req, context=_SSL_CTX, timeout=20) as r:
+            return r.read().decode("utf-8", "ignore")
+
+    text = _retry(_call)
     dates = []
     for line in text.splitlines()[1:]:  # skip header
         if not line.strip():

@@ -35,7 +35,12 @@ FB_SHEET = "1N7qiagiwwIP3UKnHD_oA2kNPwxHfTwOphaygJn5KLQs"
 IG_SHEET = "1iKW-esn69suzL1Da87OqADBT7NLPVU1Rl7gE5n9dMdc"
 # Public sheets (readable via gviz without auth). Column A holds the date.
 LINKEDIN_SHEET = "1nbzGBt53MuiVFNxNVPPP_rwP4AYC_tFfiZyWW2fHovg"
-CRM_SHEET = "1KpiWUxu2k3SEwfseflAK_sQI5sLh3JxHj2KLLrmzbS8"
+# CRM export (live; shared to the SA). Helper tab has "Update time" row =
+# the export job's own timestamp — the true pipeline freshness signal.
+CRM_SHEET = "1dkcCg7-IoIRBCsiVkuLKj-3YV8yv4Fi87FJ0e8OFeE4"
+CRM_HELPER_TAB = "Helper"
+# Legacy one-off export (frozen at 2026-09-23) — kept only as fallback reference.
+CRM_LEGACY_SHEET = "1KpiWUxu2k3SEwfseflAK_sQI5sLh3JxHj2KLLrmzbS8"
 # Shared to the service account (auth via Sheets API, like FB/IG). Column A = date.
 YOUTUBE_SHEET = "1LYiIPDv4rTPRU-MJlLkMW8ELPUq-w000lBq36S52C7M"
 # SendPulse collector writes into this sheet (Campaigns + LastUpdate tabs).
@@ -224,6 +229,44 @@ def sheet_last_date(sheet_id, tok):
     return date.fromisoformat(max(dates))
 
 
+def crm_last_date(tok):
+    """CRM freshness from the live export sheet.
+
+    Primary: Helper!"Update time" (written by the export job itself).
+    Fallback: max CreatedOn (col B) in Main. Raises if neither yields a date.
+    """
+    # Helper tab: find row [Name, Value] with Name == "Update time"
+    code, d = api(
+        f"https://sheets.googleapis.com/v4/spreadsheets/{CRM_SHEET}/values/{CRM_HELPER_TAB}",
+        tok,
+    )
+    if code == 200:
+        for r in d.get("values", []):
+            if r and r[0].strip().lower() == "update time" and len(r) > 1:
+                # Sheet stores "YYYY-MM-DD H:MM:SS" (space, no tz) — take the
+                # date part; thresholds work in whole days anyway.
+                return date.fromisoformat(r[1].strip().split(" ")[0])
+    # Fallback: Main tab, col B = CreatedOn (col A is a GUID now)
+    code, d = api(
+        f"https://sheets.googleapis.com/v4/spreadsheets/{CRM_SHEET}/values/Main!B1:B10000",
+        tok,
+    )
+    if code != 200 or "values" not in d:
+        raise RuntimeError(f"CRM {CRM_SHEET}: HTTP {code} {d.get('error', d)}")
+    dates = []
+    for r in d["values"][1:]:  # skip header
+        if not r or not r[0].strip():
+            continue
+        raw = r[0].strip().replace("T", " ")[:10]
+        try:
+            dates.append(date.fromisoformat(raw))
+        except ValueError:
+            pass
+    if not dates:
+        raise RuntimeError(f"CRM {CRM_SHEET}: no CreatedOn dates")
+    return max(dates)
+
+
 def public_sheet_last_date(sheet_id):
     """Read a public sheet's column A via gviz (no auth). Column A = date."""
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
@@ -305,13 +348,18 @@ def main():
             rows.append([name, status_for(d, today), d.isoformat()])
         except Exception as e:
             rows.append([name, "RED", f"ERR {e}"])
-    # LinkedIn / CRM (public sheets, column A = date)
-    for name, sid in (("LinkedIn", LINKEDIN_SHEET), ("CRM", CRM_SHEET)):
-        try:
-            d = public_sheet_last_date(sid)
-            rows.append([name, status_for(d, today), d.isoformat()])
-        except Exception as e:
-            rows.append([name, "RED", f"ERR {e}"])
+    # LinkedIn (public sheet, column A = date)
+    try:
+        d = public_sheet_last_date(LINKEDIN_SHEET)
+        rows.append(["LinkedIn", status_for(d, today), d.isoformat()])
+    except Exception as e:
+        rows.append(["LinkedIn", "RED", f"ERR {e}"])
+    # CRM (live export sheet, Helper!Update time; SA auth)
+    try:
+        d = crm_last_date(tok)
+        rows.append(["CRM", status_for(d, today), d.isoformat()])
+    except Exception as e:
+        rows.append(["CRM", "RED", f"ERR {e}"])
     # YouTube (service-account sheet, column A = date)
     try:
         d = sheet_last_date(YOUTUBE_SHEET, tok)
@@ -337,7 +385,12 @@ def main():
     except Exception as e:
         rows.append(["Meta Ads", "—", "немає даних"])
 
-    # write to status sheet
+    # write to status sheet — clear first so removed integrations don't leave
+    # stale tail rows behind
+    api(
+        f"https://sheets.googleapis.com/v4/spreadsheets/{STATUS_SHEET_ID}/values/status!A2:C:clear",
+        tok, {"range": "status!A2:C"}, method="POST",
+    )
     url = f"https://sheets.googleapis.com/v4/spreadsheets/{STATUS_SHEET_ID}/values/status!A2:C?valueInputOption=RAW"
     code, d = api(url, tok, {"range": "status!A2:C", "majorDimension": "ROWS", "values": rows}, method="PUT")
     if code != 200:

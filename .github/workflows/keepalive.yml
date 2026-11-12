@@ -1,0 +1,22 @@
+name: Keepalive
+
+# GitHub auto-disables scheduled workflows after 60 days of repo
+# inactivity ("disabled_inactivity"). This workflow runs monthly and,
+# when the repo nears the limit, pushes an empty keepalive commit via
+# the API so refresh.yml's daily cron never gets disabled again.
+# https://github.com/gautamkrishnar/keepalive-workflow
+
+on:
+  schedule:
+    - cron: '0 4 1 * *'   # monthly, 1st at 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: gautamkrishnar/keepalive-workflow@v2

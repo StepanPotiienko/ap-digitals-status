@@ -15,6 +15,7 @@ import os
 import ssl
 import urllib.request
 import urllib.error
+import urllib.parse
 from datetime import date, timedelta
 
 import certifi
@@ -218,15 +219,44 @@ def meta_last_date():
     return max(dates)
 
 
+def _sheet_tabs(sheet_id, tok):
+    """List tab titles of a spreadsheet."""
+    code, d = api(
+        f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}"
+        f"?fields=sheets.properties.title", tok)
+    if code != 200:
+        raise RuntimeError(f"Sheets {sheet_id} meta: HTTP {code} {d.get('error', d)}")
+    return [s["properties"]["title"] for s in d.get("sheets", [])]
+
+
 def sheet_last_date(sheet_id, tok):
-    url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/A1:A10000"
-    code, d = api(url, tok)
-    if code != 200 or "values" not in d:
-        raise RuntimeError(f"Sheets {sheet_id}: HTTP {code} {d.get('error', d)}")
-    dates = [r[0] for r in d["values"] if r and r[0].strip().lower() not in ("date", "")]
-    if not dates:
-        raise RuntimeError(f"Sheets {sheet_id}: no dates")
-    return date.fromisoformat(max(dates))
+    """Max date in column A across non-backup tabs.
+
+    Export jobs snapshot old data into a '<tab>_backup_YYYYMMDD' tab that
+    stays sorted first; the default (first) tab therefore goes stale.
+    Reading every non-backup tab keeps freshness correct regardless of
+    tab order.
+    """
+    tabs = _sheet_tabs(sheet_id, tok)
+    live = [t for t in tabs if "_backup_" not in t.lower()] or tabs
+    best = None
+    errs = []
+    for tab in live:
+        url = (f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}"
+               f"/values/{urllib.parse.quote(tab)}!A1:A10000")
+        code, d = api(url, tok)
+        if code != 200 or "values" not in d:
+            errs.append(f"{tab}: HTTP {code}")
+            continue
+        dates = [r[0] for r in d["values"]
+                 if r and r[0].strip().lower() not in ("date", "")]
+        if dates:
+            mx = date.fromisoformat(max(dates))
+            if best is None or mx > best:
+                best = mx
+    if best is None:
+        raise RuntimeError(f"Sheets {sheet_id}: no dates (tabs={live}, errs={errs})")
+    return best
 
 
 def crm_last_date(tok):
